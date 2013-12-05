@@ -33,14 +33,14 @@ struct LinkedList{
   //linkedList placeholder
 };
 
-int bufferToFile(char *buffer, int *file, int *fileSize);
+int bufferToFile(char *buffer, FILE *file, char *fileName, int *fileSize);
 
 int bufferToList(char *buffer, struct LinkedList *fileList);
 
 //int getDirectoryFiles(struct LinkedList *fileList);
 int getDirectoryFiles(List **fileList);
 
-int fileToBuffer(int fileSize, char *fileName, char *buffer);
+int fileToBuffer(int fileSize, char *fileName, char **buffer);
 
 int handleCommand(char *command, char *file);
 
@@ -67,12 +67,21 @@ int main (int argc, char * argv[])
   if(getDirectoryFiles(&list)){
     printf("error getting files");
   }
-
-  display(list);
+ 
+  char *fileBuffer;
   
+  fileToBuffer(33, "file", &fileBuffer);
+  
+  printf("File Buffer: %s\n", fileBuffer);
+
+  FILE *newFile = NULL;
+  bufferToFile(fileBuffer, newFile, "file2", 0);
+  
+
   // ===========================================
   // Fork process to listen to get requests here
   // ===========================================
+  
 
   if(registerClientName(argv[1], &socket)){
     printf("Client Name Already Registered: %s\n", argv[1]);
@@ -103,9 +112,22 @@ int main (int argc, char * argv[])
 }
 
 //Read char buffer to File descriptor
-int bufferToFile(char *buffer, int *file, int *fileSize){
+int bufferToFile(char *buffer, FILE *file, char *fileName, int *fileSize){
   char sizeBuffer[MAXINTSIZE];
+  char *fileBuffer;
+  printf("Buffer: %s\n", buffer);
   strncpy(sizeBuffer, buffer, MAXINTSIZE);
+  
+  int size = strtol(sizeBuffer, NULL, 16);
+  printf("Size of file: %d\n", size);
+  fileBuffer = malloc(size);
+  strncpy(fileBuffer, (buffer+MAXINTSIZE), size);
+  
+  file = fopen(fileName, "wb");
+  fwrite(fileBuffer, size, 1, file);
+  
+  fclose(file);
+  
 
   return 0;
 }
@@ -145,25 +167,27 @@ int getDirectoryFiles(List **fileList){
   return 0;
 }
 
-// Read file into buffer 
-int fileToBuffer(int fileSize, char *fileName, char *buffer){
+// Read file into buffer
+// Structure |fileSize|File|
+int fileToBuffer(int fileSize, char *fileName, char **buffer){
   char sizeBuffer[MAXINTSIZE+1];
   char *fileBuffer = malloc(fileSize+1);
   FILE *fp;
   
-  buffer = malloc((MAXINTSIZE+1)+(fileSize+1));
+  *buffer = malloc((MAXINTSIZE+1)+(fileSize+1));
   
   sprintf(sizeBuffer, "%08x", fileSize);
-  strcat(buffer, sizeBuffer);
+  strcat(*buffer, sizeBuffer);
 
   fp = fopen(fileName, "r");
-  
+  if(!fp)
+    printf("Error opening file\n");
   size_t newLen = fread(fileBuffer, sizeof(char), (fileSize+1), fp);
   if (newLen == 0) {
     fputs("Error reading file", stderr);
     return 1;
   }
-  strcat(buffer, fileBuffer);
+  strcat(*buffer, fileBuffer);
 
   return 0;
 }
