@@ -27,6 +27,7 @@
 #include "linkedlist.h"
 
 #define MAXBUFSIZE 1024
+#define MAXINTSIZE 8
 
 struct LinkedList{
   //linkedList placeholder
@@ -39,7 +40,7 @@ int bufferToList(char *buffer, struct LinkedList *fileList);
 //int getDirectoryFiles(struct LinkedList *fileList);
 int getDirectoryFiles(List **fileList);
 
-int fileToBuffer(int file, int fileSize, char *buffer);
+int fileToBuffer(int fileSize, char *fileName, char *buffer);
 
 int handleCommand(char *command, char *file);
 
@@ -67,15 +68,6 @@ int main (int argc, char * argv[])
     printf("error getting files");
   }
 
-  display(list);
-
-  FileInfo fileinfo = {"node1", 1, "client1", "127.0.0.1", "2245"};
-  FileInfo fileinfo2 = {"node2", 2, "client2", "127.0.0.1", "2246"};
-
-  printf("File name: %s\n", fileinfo.name);
-
-  add(fileinfo, list);
-  add(fileinfo2, list);
   display(list);
   
   // ===========================================
@@ -112,7 +104,9 @@ int main (int argc, char * argv[])
 
 //Read char buffer to File descriptor
 int bufferToFile(char *buffer, int *file, int *fileSize){
-  /*KEVIN*/
+  char sizeBuffer[MAXINTSIZE];
+  strncpy(sizeBuffer, buffer, MAXINTSIZE);
+
   return 0;
 }
 
@@ -152,8 +146,25 @@ int getDirectoryFiles(List **fileList){
 }
 
 // Read file into buffer 
-int fileToBuffer(int file, int fileSize, char *buffer){
-  /*KEVIN*/
+int fileToBuffer(int fileSize, char *fileName, char *buffer){
+  char sizeBuffer[MAXINTSIZE+1];
+  char *fileBuffer = malloc(fileSize+1);
+  FILE *fp;
+  
+  buffer = malloc((MAXINTSIZE+1)+(fileSize+1));
+  
+  sprintf(sizeBuffer, "%08x", fileSize);
+  strcat(buffer, sizeBuffer);
+
+  fp = fopen(fileName, "r");
+  
+  size_t newLen = fread(fileBuffer, sizeof(char), (fileSize+1), fp);
+  if (newLen == 0) {
+    fputs("Error reading file", stderr);
+    return 1;
+  }
+  strcat(buffer, fileBuffer);
+
   return 0;
 }
 
