@@ -38,75 +38,163 @@ int bufferToFile(char *buffer, FILE *file, char *fileName, int *fileSize);
 int bufferToList(char *buffer, struct LinkedList *fileList);
 
 //int getDirectoryFiles(struct LinkedList *fileList);
-int getDirectoryFiles(List **fileList);
+int getDirectoryFiles(List **fileList, char *name, char *ip, char *port);
 
 int fileToBuffer(int fileSize, char *fileName, char **buffer);
 
-int handleCommand(char *command, char *file);
+int handleCommand(char *command, char *file, List *fileList);
 
-int listToBuffer(struct LinkedList fileList, char *buffer);
+int listToBuffer(List * fileList, char *buffer);
 
-int registerClientName(char *name, int *sock);
+int registerClientName(char *name, char* ip, char* port, int sock);
 
-int registerFiles(int sock);
+int registerFiles(int sock, List * fileList);
 
 int requestToBuffer(int size, char *name, char *buffer);
 
 
 int main (int argc, char * argv[])
 { 
-  int socket;
-
-  List * list = emptylist();
+  List * fileList = emptylist();
+  char* myPort = "9090";
+  char* myIP = "127.0.0.1";
+  int getSocket;
+  int getPort;
+  pid_t pid;
+  int status;
   
-  if(argc < 3){
+  if(argc < 4){
     printf("<Client Name> <Server IP> <Server Port>\n");
     exit(1);
   }
   
-  if(getDirectoryFiles(&list)){
+  if(getDirectoryFiles(&fileList, argv[1], myIP, myPort)){
     printf("error getting files");
   }
- 
-  char *fileBuffer;
-  
+  display(fileList);
+  FileInfo searchInfo;
+  if(search("linkedlist.c", fileList, &searchInfo)){
+    printf("name: %s\n", searchInfo.name);
+    printf("port: %s\n", searchInfo.port);
+  }
+  else{
+    printf("file not found");
+  }
+  /*char *fileBuffer;  
   fileToBuffer(33, "file", &fileBuffer);
-  
   printf("File Buffer: %s\n", fileBuffer);
-
   FILE *newFile = NULL;
-  bufferToFile(fileBuffer, newFile, "file2", 0);
+  bufferToFile(fileBuffer, newFile, "file2", 0);*/
   
+  struct sockaddr_in serv_addr;
+  memset(&serv_addr, '0', sizeof(serv_addr));
+  serv_addr.sin_family = AF_INET;
+  serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+  serv_addr.sin_port = htons(9092);
+  
+  getSocket = 0;
+  getSocket = socket(AF_INET, SOCK_STREAM, 0);       
+  //set SO_REUSEADDR so that socket immediate unbinds from port after closed
+  int optVal = 1;
+  setsockopt(getSocket, SOL_SOCKET, SO_REUSEADDR, &optVal, sizeof(optVal));
+  if(bind(getSocket, (struct sockaddr*)&serv_addr, sizeof(serv_addr))){
+    printf("Bind Failed: %s\n", strerror(errno));
+    return 1;
+  } 
+  if(listen(getSocket, 3)){
+    printf("Listen Failed: %s\n", strerror(errno));
+    return 1;
+  }
+  
+  memset(&serv_addr, '0', sizeof(serv_addr));
+  socklen_t len = sizeof(serv_addr);
+  getsockname(getSocket, (struct sockaddr*)&serv_addr, &len);
+  getPort = ntohs(serv_addr.sin_port);
+  printf("Listening on port: %d\n", getPort);
 
+  pid = fork();
+  if(pid >= 0){
+    if(pid == 0){
+      //child
+      char buffer[1024];
+      while(1){
+	 int connfd = accept(getSocket, (struct sockaddr*)NULL, NULL);
+	 int received = 0;
+	 while(!received){
+	   printf("child receive\n");
+	   if(recv(connfd, buffer, sizeof buffer, 0) < 0){
+	     perror("recv error\n");
+	   }
+	   else{
+	     // handle file request
+	     printf("Received request: %s", buffer); 
+	     received = 1;
+	   }
+	 }
+	 printf("Received loop done\n");
+	 close(connfd);
+      }  
+    }
+    else{
+      //parent
+      // init server addr with addr and port provided in argv
+      int socketfd;
+      struct sockaddr_in serv_addr;
+      memset(&serv_addr, '0', sizeof(serv_addr));
+      serv_addr.sin_family = AF_INET;
+      serv_addr.sin_addr.s_addr = inet_addr(argv[2]);
+      serv_addr.sin_port = htons(atoi(argv[3]));
+      
+      // create socketfd and set SO_REUSEADDR
+      socketfd = socket(AF_INET, SOCK_STREAM, 0);
+      int optVal = 1;
+      setsockopt(socketfd, SOL_SOCKET, SO_REUSEADDR, &optVal, sizeof(optVal));
+      
+      /*
+      // attempt to connect to server
+      if(connect(socketfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr))) {
+      // connection failed
+      printf("Connect Failed: %s\n", strerror(errno));
+      return 1;
+      }
+      else {
+      // successful connection
+      // register client
+      if(registerClientName(argv[1], myIP, myPort, socketfd)){
+      printf("Client Name Already Registered: %s\n", argv[1]);
+      printf("Exiting\n");
+      exit(1);
+      }
+      // send client files
+      if(registerFiles(socketfd, fileList)){
+      printf("Failed to register files\n");
+      exit(1);
+      }
+      }
+      */
+        char command[MAXBUFSIZE];
+	// wait for commands 
+	while(1){
+	  bzero(command, sizeof(command));
+	  //Read from command line to String(s)
+	  fgets(command, sizeof(command), stdin);
+      
+	  if(strlen(command) > 0) {
+	    // command line input is handled inside of handleCommand function
+	    // it returns 1 on an exit, breaks the while loop and exits
+	    
+	    if(handleCommand(command, NULL, fileList)){// !!!! fileList should be replaced by master list !!!!!
+	      break;
+	    }
+	  }
+	}
+    }
+  }
   // ===========================================
   // Fork process to listen to get requests here
   // ===========================================
-  
-
-  if(registerClientName(argv[1], &socket)){
-    printf("Client Name Already Registered: %s\n", argv[1]);
-    printf("Exiting\n");
-    exit(1);
-  }
-
-  if(registerFiles(socket)){
-    printf("Failed to register files\n");
-    exit(1);
-  }
 
 
-  char *command;
-  // wait for commands 
-  while(1){
-    //Read from command line to String(s)
-    command = "";
-    
-    // command line input is handled inside of handleCommand function
-    // it returns 1 on an exit, breaks the while loop and exits
-    if(handleCommand(command, NULL)){
-      break;
-    }
-  }
   
   exit(0);
 }
@@ -139,7 +227,7 @@ int bufferToList(char *buffer, struct LinkedList *fileList){
 }
 
 // Collect file information from directory
-int getDirectoryFiles(List **fileList){
+int getDirectoryFiles(List **fileList, char *name, char *ip, char *port){
   
   DIR *dirp;
   struct dirent *dp;
@@ -157,7 +245,7 @@ int getDirectoryFiles(List **fileList){
       if((strcmp(fileName, ".") != 0) && (strcmp(fileName, "..") != 0)){
 	stat(fileName, &fileStats);
 
-	FileInfo fileInfo = {fileName, fileStats.st_size, "client_name", "127.0.0.1", "port"};
+	FileInfo fileInfo = {fileName, fileStats.st_size, name, ip, port};
 	add(fileInfo, *fileList);
 	
       }
@@ -193,21 +281,66 @@ int fileToBuffer(int fileSize, char *fileName, char **buffer){
 }
 
 // Handle command line input return 1 on exit or failure
-int handleCommand(char *command, char *file){
-  if(strcmp(command, "exit"))
+int handleCommand(char *command, char *file, List *fileList){
+  if(strstr(command, "exit") != NULL) {
+    printf("recived exit comman\n");
     return 1;
-  else if(strcmp(command, "ls")){
+  }
+  else if(strstr(command, "ls") != NULL){
     /* LUKE */
     // Get updated master list
     // print out updated master list
+    printf("recived ls command\n");
     return 0;
   }
-  else if(strcmp(command, "get")){
+  else if(strstr(command, "get") != NULL){
     /* KEVIN */
     // lookup file address from masterlist
     // create connection with client
     // send file request and retrieve file
     // close connection
+    char *requestBuffer;
+    printf("recived get command\n");
+    int nameSize = strlen(command)-5;
+    requestBuffer = malloc(nameSize);
+    strncpy(requestBuffer, command+4, nameSize);
+    printf("request: %s\n", requestBuffer);
+    FileInfo info;
+    if(search(requestBuffer, fileList, &info)){
+      printf("file found\n");
+      printf("Port: %s\n", info.port);
+      int parentSocket = socket(AF_INET, SOCK_STREAM, 0);
+      struct sockaddr_in client_addr;
+      memset(&client_addr, '0', sizeof(client_addr));
+
+      client_addr.sin_family = AF_INET;
+      client_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+      int port = (int)strtol(info.port, (char **)NULL, 10);
+      client_addr.sin_port = htons(port); 
+      int optVal = 1;
+      setsockopt(parentSocket, SOL_SOCKET, SO_REUSEADDR, &optVal, sizeof(optVal));
+      int connected = 0;
+      while(!connected){
+	//blindly attempt to connect
+	if(connect(parentSocket, (struct sockaddr *)&client_addr, sizeof(client_addr))){
+	  printf("error connecting\n");
+	}
+	else{
+	  printf("Connected\n");
+	  connected = 1;
+	}
+      }
+      char buffer[1024];
+      int i;
+      for(i = 0; i < 1; i++){
+	if(send(parentSocket, buffer, sizeof buffer, 0) >= 0){
+	  printf("message sent\n");
+	};
+      }
+    }
+    else{
+      printf("File not found\n");
+    }
     return 0;
   }
   printf("Error: Unrecognized Command\n");
@@ -215,29 +348,125 @@ int handleCommand(char *command, char *file){
 }
 
 // Convert linkedlist to buffer for sending over connection
-int listToBuffer(struct LinkedList fileList, char *buffer){
-  return 0;
+int listToBuffer(List * fileList, char *buffer){
+  bzero(buffer, sizeof(buffer));
+
+  if(fileList->head != NULL) {
+    Node * currNode = fileList->head;
+    strcat(buffer, "<");
+    strcat(buffer, currNode->data.name);
+    strcat(buffer, ",");
+    sprintf(buffer, "%s%d", buffer, currNode->data.size);
+    strcat(buffer, ",");
+    strcat(buffer, currNode->data.owner);
+    strcat(buffer, ",");
+    strcat(buffer, currNode->data.ip);
+    strcat(buffer, ",");
+    strcat(buffer, currNode->data.port);
+    strcat(buffer, ">");
+  
+    while(currNode->next != NULL) {
+      currNode = currNode->next;
+      strcat(buffer, "<");
+      strcat(buffer, currNode->data.name);
+      strcat(buffer, ",");
+      sprintf(buffer, "%s%d", buffer, currNode->data.size);
+      strcat(buffer, ",");
+      strcat(buffer, currNode->data.owner);
+      strcat(buffer, ",");
+      strcat(buffer, currNode->data.ip);
+      strcat(buffer, ",");
+      strcat(buffer, currNode->data.port);
+      strcat(buffer, ">");
+    }
+
+    if(strlen(buffer) > 0) return 0;
+    else return 1;
+  }
+  else {
+    return 1;
+  }
 }
 
 // Register client name with server
-int registerClientName(char *name, int *sock){
+int registerClientName(char *name, char *ip, char *port, int sock){
   // If file name already exists in master list return 1
   // else add files to list, register name, and return 0
-  printf("Client Name Registered: %s\n", name);
-  return 0;
+  
+  char buffer[MAXBUFSIZE];
+  bzero(buffer, sizeof(buffer));
+
+  strcat(buffer, name);
+  strcat(buffer, "|");
+  strcat(buffer, ip);
+  strcat(buffer, "|");
+  strcat(buffer, port);
+
+  // send name
+  if(send(sock, buffer, sizeof(buffer), 0) > 0) {
+    // wait for response
+    bzero(buffer, sizeof(buffer));
+    if(recv(sock, buffer, sizeof(buffer), 0) > 0) {
+      // check response for success or failure
+      if(strcmp(buffer, "success") == 0) {
+	return 0;
+      }
+      if(strcmp(buffer, "failure") == 0) {
+	return 1;
+      }
+      else {
+	return 1;
+      }
+    }
+    else {
+      printf("Recive after name Send Failed: %s\n", strerror(errno));
+      return 1;
+    }
+  }
+  else {
+    printf("Name Send Failed: %s\n", strerror(errno));
+    return 1;
+  }
+
+  return 1;
 }
 
 // Register client files 
-int registerFiles(int sock){
-  char *buffer;
-  struct LinkedList list;
+int registerFiles(int sock, List * fileList){
+  char buffer[MAXBUFSIZE];
 
-  // fileList = getDirectoryFiles(&fileList);
-  // buffer = listToBuffer(fileList, buffer);
-  /* LUKE */
+  if(listToBuffer(fileList, buffer)) {
+    printf("Failed to convert file list to buffer\n");
+    exit(1);
+  }
+
   // send buffer to server
+  if(send(sock, buffer, sizeof(buffer), 0) > 0) {
+    // wait for response
+    bzero(buffer, sizeof(buffer));
+    if(recv(sock, buffer, sizeof(buffer), 0) > 0) {
+      // check response for success or failure
+      if(strcmp(buffer, "success") == 0) {
+	return 0;
+      }
+      if(strcmp(buffer, "failure") == 0) {
+	return 1;
+      }
+      else {
+	return 1;
+      }
+    }
+    else {
+      printf("Recive after file list Send Failed: %s\n", strerror(errno));
+      return 1;
+    }
+  }
+  else {
+    printf("File List Send Failed: %s\n", strerror(errno));
+    return 1;
+  }
 
-  return 0;
+  return 1;
 }
 
 // Create file request to buffer - MIGHT BE UNNECESSARY 

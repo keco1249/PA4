@@ -54,7 +54,27 @@ void delete(FileInfo data, List * list){
     previous = current;             
     current = current->next;        
   }                                 
-}                                   
+} 
+
+int search(char *fileName, List * list, FileInfo *data){
+  Node * current = list->head;            
+  Node * previous = current; 
+  FileInfo fileInfo;
+  while(current != NULL){           
+    if(strcmp(current->data.name, fileName) == 0){      
+      data->name = current->data.name;
+      data->size = current->data.size;
+      data->port = current->data.port;
+      data->ip = current->data.ip;
+      data->owner = current->data.owner;
+
+      return 1;
+    }                               
+    previous = current;             
+    current = current->next;        
+  }
+  return 0;
+}                                  
 
 void reverse(List * list){
   Node * reversed = NULL;

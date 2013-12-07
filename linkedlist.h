@@ -24,6 +24,7 @@ typedef struct list {
 List * emptylist();
 void add(FileInfo data, List * list);
 void delete(FileInfo data, List * list);
+int search(char *fileName, List * list, FileInfo *data);
 void display(List * list);
 void reverse(List * list);
 void destroy(List * list);
