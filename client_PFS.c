@@ -46,7 +46,7 @@ int registerFiles(int sock, List * fileList);
 int main (int argc, char * argv[])
 { 
   List * fileList = emptylist();
-  char* myPort = "9090";
+  char myPort[12];
   char* myIP = "127.0.0.1";
   int getSocket = 0;
   int getPort;
@@ -56,7 +56,6 @@ int main (int argc, char * argv[])
     printf("<Client Name> <Server IP> <Server Port>\n");
     exit(1);
   }
-  
   if(getDirectoryFiles(&fileList, argv[1], myIP, myPort)){
     printf("error getting files");
   }
@@ -65,7 +64,7 @@ int main (int argc, char * argv[])
   memset(&serv_addr, '0', sizeof(serv_addr));
   serv_addr.sin_family = AF_INET;
   serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-  serv_addr.sin_port = 0;//htons(9092);
+  serv_addr.sin_port = 0;
  
   getSocket = socket(AF_INET, SOCK_STREAM, 0);       
   //set SO_REUSEADDR so that socket immediate unbinds from port after closed
@@ -84,6 +83,7 @@ int main (int argc, char * argv[])
   socklen_t len = sizeof(serv_addr);
   getsockname(getSocket, (struct sockaddr*)&serv_addr, &len);
   getPort = ntohs(serv_addr.sin_port);
+  sprintf(myPort,"%d", getPort);
   printf("Listening on port: %d\n", getPort);
 
   pid = fork();
@@ -95,39 +95,34 @@ int main (int argc, char * argv[])
 	int connfd = accept(getSocket, (struct sockaddr*)NULL, NULL);
 	int received = 0;
 	 while(!received){
-	   printf("child receive\n");
+	   memset(buffer, '\0', 64);
 	   if(recv(connfd, buffer, 64, 0) < 0){
 	     perror("recv error\n");
 	   }
 	   else{
 	     // handle file request
 	     char * fileRequestBuffer;
-	     printf("Received request: %s\n", buffer); 
 	     received = 1;
 	     int size = strlen(buffer);
-	     printf("request size: %d\n", size);
 	     fileRequestBuffer = malloc(size+1);
 	     strncpy(fileRequestBuffer, buffer, size);
 	     fileRequestBuffer[size+1] = '\0';
-	     printf("Request: %s\n", fileRequestBuffer);
 	     FileInfo info;
 	     if(search(fileRequestBuffer, fileList, &info)){
-	       printf("File found\n");
 	       char *fileBuffer;
 	       fileToBuffer(fileRequestBuffer, &fileBuffer);
 	       int fileSize = strlen(fileBuffer);
-	       printf("Sending %d bytes in message: %s\n", fileSize, fileBuffer);
 	       send(connfd, fileBuffer, fileSize, 0);
 	     }
 	     else{
 	       char errorBuffer[1];
 	       printf("File not found\n");
 	       // Send error message
-	       send(connfd, errorBuffer, 0,0);
+	       errorBuffer[0] = 'E';
+	       send(connfd, errorBuffer, 1,0);
 	     }
 	   }
 	 }
-	 printf("Received loop done\n");
 	 close(connfd);
       }  
     }
@@ -163,7 +158,7 @@ int main (int argc, char * argv[])
       }
       // set socket to non-blocking
       fcntl(socketfd, F_SETFL, O_NONBLOCK);
-
+      
       // set up stdin to poll from
       struct pollfd cinfd[1];
       cinfd[0].fd = fileno(stdin);
@@ -176,7 +171,7 @@ int main (int argc, char * argv[])
 	bzero(buffer, sizeof(buffer));
 	if(recv(socketfd, buffer, sizeof(buffer), 0) > 0) {
 	  // print out message from server
-	  printf("%s\n", buffer);
+          printf("%s\n", buffer);
 	}
 
 	if(poll(cinfd, 1, 1000) > 0) {
@@ -195,6 +190,7 @@ int main (int argc, char * argv[])
       }
     }
   }
+  printf("Normal Exit\n");
   exit(0);
 }
 
@@ -254,9 +250,6 @@ int fileToBuffer(char *fileName, char **buffer){
   char *fileBuffer = malloc(size+1);
   
   *buffer = malloc(size+1);
-  
-  //sprintf(sizeBuffer, "%08x", size);
-  //strcat(*buffer, sizeBuffer);
   size_t newLen = fread(fileBuffer, sizeof(char), (size+1), fp);
   if (newLen == 0) {
     fputs("Error reading file", stderr);
@@ -282,7 +275,6 @@ int handleCommand(char *command, int sock, char *file){
   else if(strstr(command, "ls") != NULL){
     bzero(buffer, sizeof(buffer));
     strcpy(buffer, "ls");
-    printf("sending buffer %s\n", buffer);
     
     if(send(sock, buffer, sizeof(buffer), 0) <= 0) {
       printf("ls request Failed: %s\n", strerror(errno));
@@ -291,32 +283,22 @@ int handleCommand(char *command, int sock, char *file){
     return 0;
   }
   else if(strstr(command, "get") != NULL){
-    /* KEVIN */
-    // lookup file address from masterlist
-    // create connection with client
-    // send file request and retrieve file
-    // close connection
     char commandBuffer[4];
     char nameBuffer[56];
     char portBuffer[5];
-    char ipBuffer[10];
+    char ipBuffer[12];
     sscanf(command,"%s %s %s %s", commandBuffer, nameBuffer, portBuffer, ipBuffer);
-    char *requestBuffer;
  
     int nameSize = strlen(nameBuffer);
-    printf("name size: %d\n", nameSize);
-    requestBuffer = malloc(nameSize);
- 
-    printf("request: %s\n", nameBuffer);
- 
     int parentSocket = socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_in client_addr;
     memset(&client_addr, '0', sizeof(client_addr));
 
     client_addr.sin_family = AF_INET;
-    client_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    //client_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    client_addr.sin_addr.s_addr = inet_addr(ipBuffer);
     int port = (int)strtol(portBuffer, (char **)NULL, 10);
-    printf("Port: %d\n", port);
+
     client_addr.sin_port = htons(port); 
     int optVal = 1;
     setsockopt(parentSocket, SOL_SOCKET, SO_REUSEADDR, &optVal, sizeof(optVal));
@@ -325,29 +307,28 @@ int handleCommand(char *command, int sock, char *file){
       //blindly attempt to connect
       if(connect(parentSocket, (struct sockaddr *)&client_addr, sizeof(client_addr))){
 	printf("error connecting\n");
+	break;
       }
       else{
-	printf("Connected\n");
 	connected = 1;
       }
-      if(send(parentSocket, nameBuffer, nameSize, 0) >= 0){
-	printf("message sent\n");
-	printf("Request buffer size: %d\n", nameSize);
-	printf("Request Buffer Sent: %s\n", requestBuffer);
+      if(send(parentSocket, nameBuffer, nameSize, 0) < 0){
+	perror("Send Error:");
       }
       int bytesReceived = recv(parentSocket, buffer, 4600, 0);
       if(bytesReceived < 0){
 	perror("recv error\n");
       }
-      else if(bytesReceived == 0){
-	printf("File not in client's directory");
-      }
       else{
-	int size = strlen(buffer);
-	printf("File Size: %d\n", size);
-	printf("File name: %s\n", nameBuffer);
-	FILE *fd = NULL;
-	bufferToFile(buffer, fd, nameBuffer, &size);
+	if(bytesReceived == 1){
+	  printf("File not in client's directory\n");
+	}
+	else{
+	  int size = strlen(buffer);
+	  printf("Received file: %s\n", nameBuffer);
+	  FILE *fd = NULL;
+	  bufferToFile(buffer, fd, nameBuffer, &size);
+	}
       }
       
     }

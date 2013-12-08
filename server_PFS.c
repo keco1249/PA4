@@ -36,7 +36,7 @@ struct file masterFileList[MAXFILES];
 struct client myClients[MAXCLIENTS];
 int cli_socketfds[MAXCLIENTS];
 
-int initConnection(int cli_socketfd, struct sockaddr *client_addr, int *sizeMyClients, int* sizeMasterFileList);
+int initConnection(int cli_socketfd, int *sizeMyClients, int* sizeMasterFileList);
 
 int addClient(char name[MAXBUFSIZE], char ip[MAXBUFSIZE], int port, int *sizeMyClients);
 
@@ -55,7 +55,6 @@ int main (int argc, char * argv[]) {
   int sizeMyClients = 0;
   int serv_socketfd = 0;
   int accept_socketfd = 0;
-  int pid = 0;
 
   struct sockaddr_in serv_addr;
   struct sockaddr_in cli_addr;
@@ -63,8 +62,6 @@ int main (int argc, char * argv[]) {
 
   //int cli_socketfds[MAXCLIENTS];
   int sizeCliSocketfds;
-
-  char buffer[100];
   
   if (argc < 2) {
     printf("USAGE:  <Port>\n");
@@ -98,7 +95,8 @@ int main (int argc, char * argv[]) {
   // set socket to non-blocking
   fcntl(serv_socketfd, F_SETFL, O_NONBLOCK);
 
-  int i;
+  int i, j;
+  char buffer[1];
   while(1) {
     cli_len = sizeof(cli_addr);
     if((accept_socketfd = accept(serv_socketfd, (struct sockaddr*)&cli_addr, &cli_len)) > 0) {
@@ -109,7 +107,7 @@ int main (int argc, char * argv[]) {
 
       // register client will return true if client added succesfully and the client 
       // updated the master file list
-      if(initConnection(accept_socketfd, (struct sockaddr*)&cli_addr, &sizeMyClients, &sizeMasterFileList)) {
+      if(initConnection(accept_socketfd, &sizeMyClients, &sizeMasterFileList)) {
 	// forward new file list to all clients
 	for(i = 0; i < sizeMyClients; i++) {
 	  sendFileList(cli_socketfds[i], &sizeMasterFileList);
@@ -124,17 +122,16 @@ int main (int argc, char * argv[]) {
       bzero(buffer, sizeof(buffer));
       if(recv(cli_socketfds[i], buffer, sizeof(buffer), 0) > 0) {
 	// process command
-	if(strstr(buffer, "ls") != NULL) {
+	if(strstr(buffer, "l") != NULL) {
 	  sendFileList(cli_socketfds[i], &sizeMasterFileList);
 	}
-	else if(strstr(buffer, "exit") != NULL) {
+	else if(strstr(buffer, "e") != NULL) {
 	  removeClient(myClients[i].name, &sizeMyClients, &sizeCliSocketfds, &sizeMasterFileList);
+	  // forward new file list to all clients
+	  for(j = 0; j < sizeMyClients; j++) {
+	    sendFileList(cli_socketfds[j], &sizeMasterFileList);
+	  }
 	}
-	/*else {
-	  bzero(buffer, sizeof(buffer));
-	  strcpy(buffer, "I did not understand your request.\n");
-	  send(cli_socketfds[i], buffer, sizeof(buffer), 0);
-	  }*/
       }
     }
   }
@@ -144,7 +141,7 @@ int main (int argc, char * argv[]) {
 
 
 // rerturn 1 if add files to master list, 0 if did not add files to master list
-int initConnection(int cli_socketfd, struct sockaddr* client_addr, int* sizeMyClients, int* sizeMasterFileList) {
+int initConnection(int cli_socketfd, int* sizeMyClients, int* sizeMasterFileList) {
   char name[MAXBUFSIZE], size[MAXBUFSIZE], source[MAXBUFSIZE], ip[MAXBUFSIZE], port[MAXBUFSIZE];
   char buffer[MAXBUFSIZE];
   bzero(buffer, sizeof(buffer));
@@ -198,9 +195,10 @@ int initConnection(int cli_socketfd, struct sockaddr* client_addr, int* sizeMyCl
   }
   else {
     printf("Recive Name Failed: %s\n", strerror(errno));
-    return;
+    return 0;
   }
 
+  
   bzero(buffer, sizeof(buffer));
   //wait for client files
   if(recv(cli_socketfd, buffer, sizeof(buffer), 0) > 0) {
@@ -219,8 +217,6 @@ int initConnection(int cli_socketfd, struct sockaddr* client_addr, int* sizeMyCl
     char* start = buffer;
     char* end = buffer;
     char* comma = buffer;
-    struct file currFile;
-    struct client currClient;
 
     while((start = strchr(start, '<')) != NULL) {
       end = strchr(end + 1, '>');
@@ -257,16 +253,15 @@ int initConnection(int cli_socketfd, struct sockaddr* client_addr, int* sizeMyCl
       // add files to master list of files
       addFile(name, size, source, ip, port, sizeMasterFileList);
     }
-    
-    // send file list to client
-    sendFileList(cli_socketfd, sizeMasterFileList);
-    
+
     return 1;
   }
   else {
     printf("Recive Files Failed: %s\n", strerror(errno));
     return 0;
   }
+
+  return 1;
 }
 
 
@@ -319,8 +314,6 @@ void removeClient(char name[MAXBUFSIZE], int* sizeMyClients, int* sizeCliSocketf
     (*sizeMyClients)--;
     (*sizeCliSocketfds)--;
   }
-
-  int s = *sizeMasterFileList;
 }
 
 void addFile(char *name, char *size, char *source, char *ip, char *port, int *sizeMasterFileList) {
