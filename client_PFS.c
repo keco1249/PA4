@@ -58,10 +58,9 @@ int main (int argc, char * argv[])
   List * fileList = emptylist();
   char* myPort = "9090";
   char* myIP = "127.0.0.1";
-  int getSocket;
+  int getSocket = 0;
   int getPort;
   pid_t pid;
-  int status;
   
   if(argc < 4){
     printf("<Client Name> <Server IP> <Server Port>\n");
@@ -71,28 +70,13 @@ int main (int argc, char * argv[])
   if(getDirectoryFiles(&fileList, argv[1], myIP, myPort)){
     printf("error getting files");
   }
-  display(fileList);
-  FileInfo searchInfo;
-  if(search("linkedlist.c", fileList, &searchInfo)){
-    printf("name: %s\n", searchInfo.name);
-    printf("port: %s\n", searchInfo.port);
-  }
-  else{
-    printf("file not found");
-  }
-  /*char *fileBuffer;  
-  fileToBuffer(33, "file", &fileBuffer);
-  printf("File Buffer: %s\n", fileBuffer);
-  FILE *newFile = NULL;
-  bufferToFile(fileBuffer, newFile, "file2", 0);*/
   
   struct sockaddr_in serv_addr;
   memset(&serv_addr, '0', sizeof(serv_addr));
   serv_addr.sin_family = AF_INET;
   serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
   serv_addr.sin_port = 0;//htons(9092);
-  
-  getSocket = 0;
+ 
   getSocket = socket(AF_INET, SOCK_STREAM, 0);       
   //set SO_REUSEADDR so that socket immediate unbinds from port after closed
   int optVal = 1;
@@ -220,15 +204,11 @@ int main (int argc, char * argv[])
 
 //Read char buffer to File descriptor
 int bufferToFile(char *buffer, FILE *file, char *fileName, int *fileSize){
-  char *fileBuffer;
-  fileBuffer = malloc(*fileSize+1);
-  printf("malloc done\n");
-  printf("opening file: %s\n", fileName);
+ 
   file = fopen(fileName, "wb");
   if(file == NULL){
     printf("error opening file\n");
   }
-  printf("file opened\n");
   fwrite(buffer, *fileSize, 1, file);
   
   fclose(file);
@@ -273,7 +253,6 @@ int getDirectoryFiles(List **fileList, char *name, char *ip, char *port){
 // Read file into buffer
 // Structure |fileSize|File|
 int fileToBuffer(char *fileName, char **buffer){
-  char sizeBuffer[MAXINTSIZE+1];
   FILE *fp;
   int size;
   fp = fopen(fileName, "r");
@@ -331,9 +310,7 @@ int handleCommand(char *command, char *file, List *fileList){
     requestBuffer = malloc(nameSize);
     //strncpy(requestBuffer, command+4, nameSize);
     printf("request: %s\n", nameBuffer);
-    FileInfo info;
-    //if(search(nameBuffer, fileList, &info)){
-    //printf("file found\n");
+ 
     int parentSocket = socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_in client_addr;
     memset(&client_addr, '0', sizeof(client_addr));
