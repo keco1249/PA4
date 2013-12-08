@@ -2,7 +2,6 @@
 // Authors: Luke Connors and Kevin Colin
 // linkedlist.h/linkedlist.c borrowed from https://github.com/skorks/c-linked-list
 // and modified to include file data within each node
-
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -22,35 +21,26 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
-
+#include <poll.h>
 //
 #include "linkedlist.h"
 
 #define MAXBUFSIZE 1024
 #define MAXINTSIZE 8
 
-struct LinkedList{
-  //linkedList placeholder
-};
-
 int bufferToFile(char *buffer, FILE *file, char *fileName, int *fileSize);
 
-int bufferToList(char *buffer, struct LinkedList *fileList);
-
-//int getDirectoryFiles(struct LinkedList *fileList);
 int getDirectoryFiles(List **fileList, char *name, char *ip, char *port);
 
 int fileToBuffer(char *fileName, char **buffer);
 
-int handleCommand(char *command, char *file, List *fileList);
+int handleCommand(char *command, int sock, char *file);
 
 int listToBuffer(List * fileList, char *buffer);
 
 int registerClientName(char *name, char* ip, char* port, int sock);
 
 int registerFiles(int sock, List * fileList);
-
-int requestToBuffer(int size, char *name, char *buffer);
 
 
 int main (int argc, char * argv[])
@@ -139,7 +129,7 @@ int main (int argc, char * argv[])
       }  
     }
     else{
-      //parent
+      /*
       // init server addr with addr and port provided in argv
       int socketfd;
       struct sockaddr_in serv_addr;
@@ -147,13 +137,10 @@ int main (int argc, char * argv[])
       serv_addr.sin_family = AF_INET;
       serv_addr.sin_addr.s_addr = inet_addr(argv[2]);
       serv_addr.sin_port = htons(atoi(argv[3]));
-      
       // create socketfd and set SO_REUSEADDR
       socketfd = socket(AF_INET, SOCK_STREAM, 0);
       int optVal = 1;
       setsockopt(socketfd, SOL_SOCKET, SO_REUSEADDR, &optVal, sizeof(optVal));
-      
-      /*
       // attempt to connect to server
       if(connect(socketfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr))) {
       // connection failed
@@ -175,9 +162,54 @@ int main (int argc, char * argv[])
       }
       }
       */
-        char command[MAXBUFSIZE];
-	// wait for commands 
-	while(1){
+       // init server addr with addr and port provided in argv
+      int socketfd;
+      struct sockaddr_in serv_addr;
+      memset(&serv_addr, '0', sizeof(serv_addr));
+      serv_addr.sin_family = AF_INET;
+      serv_addr.sin_addr.s_addr = inet_addr(argv[2]);
+      serv_addr.sin_port = htons(atoi(argv[3]));
+      
+      // create socketfd and set SO_REUSEADDR
+      socketfd = socket(AF_INET, SOCK_STREAM, 0);
+      int optVal = 1;
+      setsockopt(socketfd, SOL_SOCKET, SO_REUSEADDR, &optVal, sizeof(optVal));
+      
+      // attempt to connect to server
+      if(connect(socketfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr))) {
+	printf("Connect Failed: %s\n", strerror(errno));
+	return 1;
+      }
+      else { // successful connection
+	if(registerClientName(argv[1], myIP, myPort, socketfd)){
+	  printf("Client Name Already Registered: %s\nExiting\n", argv[1]);
+	  exit(1);
+	}
+	// send client files
+	if(registerFiles(socketfd, fileList)){
+	  printf("Failed to register files\n");
+	  exit(1);
+	}
+      }
+      // set socket to non-blocking
+      fcntl(socketfd, F_SETFL, O_NONBLOCK);
+
+      // set up stdin to poll from
+      struct pollfd cinfd[1];
+      cinfd[0].fd = fileno(stdin);
+      cinfd[0].events = POLLIN;
+
+      char command[MAXBUFSIZE];
+      char buffer[MAXBUFSIZE];
+      // wait for commands 
+      while(1){
+	bzero(buffer, sizeof(buffer));
+	if(recv(socketfd, buffer, sizeof(buffer), 0) > 0) {
+	  // print out message from server
+	  printf("%s\n", buffer);
+	}
+
+	if(poll(cinfd, 1, 1000) > 0) {
 	  bzero(command, sizeof(command));
 	  //Read from command line to String(s)
 	  fgets(command, sizeof(command), stdin);
@@ -185,20 +217,14 @@ int main (int argc, char * argv[])
 	  if(strlen(command) > 0) {
 	    // command line input is handled inside of handleCommand function
 	    // it returns 1 on an exit, breaks the while loop and exits
-	    
-	    if(handleCommand(command, NULL, fileList)){// !!!! fileList should be replaced by master list !!!!!
+	    if(handleCommand(command, socketfd, NULL)){
 	      break;
 	    }
 	  }
 	}
+      }
     }
   }
-  // ===========================================
-  // Fork process to listen to get requests here
-  // ===========================================
-
-
-  
   exit(0);
 }
 
@@ -215,15 +241,8 @@ int bufferToFile(char *buffer, FILE *file, char *fileName, int *fileSize){
   return 0;
 }
 
-// Read char buffer into a linkedlist
-int bufferToList(char *buffer, struct LinkedList *fileList){
-  /*BOTH*/
-  return 0;
-}
-
 // Collect file information from directory
 int getDirectoryFiles(List **fileList, char *name, char *ip, char *port){
-  
   DIR *dirp;
   struct dirent *dp;
   struct stat fileStats;
@@ -279,17 +298,26 @@ int fileToBuffer(char *fileName, char **buffer){
 }
 
 // Handle command line input return 1 on exit or failure
-int handleCommand(char *command, char *file, List *fileList){
+int handleCommand(char *command, int sock, char *file){
   char buffer[4600];
   if(strstr(command, "exit") != NULL) {
-    printf("recived exit comman\n");
+    bzero(buffer, sizeof(buffer));
+    strcpy(buffer, "exit");
+    if(send(sock, buffer, sizeof(buffer), 0) <= 0) {
+      printf("exit request Send Failed: %s\n", strerror(errno));
+      return 1;
+    }
     return 1;
   }
   else if(strstr(command, "ls") != NULL){
-    /* LUKE */
-    // Get updated master list
-    // print out updated master list
-    printf("recived ls command\n");
+    bzero(buffer, sizeof(buffer));
+    strcpy(buffer, "ls");
+    printf("sending buffer %s\n", buffer);
+    
+    if(send(sock, buffer, sizeof(buffer), 0) <= 0) {
+      printf("ls request Failed: %s\n", strerror(errno));
+      return 1;
+    }
     return 0;
   }
   else if(strstr(command, "get") != NULL){
@@ -304,11 +332,11 @@ int handleCommand(char *command, char *file, List *fileList){
     char ipBuffer[10];
     sscanf(command,"%s %s %s %s", commandBuffer, nameBuffer, portBuffer, ipBuffer);
     char *requestBuffer;
-    //int nameSize = strlen(command)-5;
+ 
     int nameSize = strlen(nameBuffer);
     printf("name size: %d\n", nameSize);
     requestBuffer = malloc(nameSize);
-    //strncpy(requestBuffer, command+4, nameSize);
+ 
     printf("request: %s\n", nameBuffer);
  
     int parentSocket = socket(AF_INET, SOCK_STREAM, 0);
@@ -352,9 +380,6 @@ int handleCommand(char *command, char *file, List *fileList){
       }
       
     }
-    //else{
-    //printf("File not found\n");
-    //}
     return 0;
   }
   printf("Error: Unrecognized Command\n");
@@ -458,19 +483,7 @@ int registerFiles(int sock, List * fileList){
   if(send(sock, buffer, sizeof(buffer), 0) > 0) {
     // wait for response
     bzero(buffer, sizeof(buffer));
-    if(recv(sock, buffer, sizeof(buffer), 0) > 0) {
-      // check response for success or failure
-      if(strcmp(buffer, "success") == 0) {
-	return 0;
-      }
-      if(strcmp(buffer, "failure") == 0) {
-	return 1;
-      }
-      else {
-	return 1;
-      }
-    }
-    else {
+    if(recv(sock, buffer, sizeof(buffer), 0) <= 0) {
       printf("Recive after file list Send Failed: %s\n", strerror(errno));
       return 1;
     }
@@ -481,10 +494,4 @@ int registerFiles(int sock, List * fileList){
   }
 
   return 1;
-}
-
-// Create file request to buffer - MIGHT BE UNNECESSARY 
-int requestToBuffer(int size, char *name, char *buffer){
-  // map size and name to buffer
-  return 0;
 }
