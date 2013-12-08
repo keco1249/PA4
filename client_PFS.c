@@ -25,7 +25,7 @@
 //
 #include "linkedlist.h"
 
-#define MAXBUFSIZE 1024
+#define MAXBUFSIZE 2048
 #define MAXINTSIZE 8
 
 int bufferToFile(char *buffer, FILE *file, char *fileName, int *fileSize);
@@ -120,7 +120,10 @@ int main (int argc, char * argv[])
 	       send(connfd, fileBuffer, fileSize, 0);
 	     }
 	     else{
+	       char errorBuffer[1];
 	       printf("File not found\n");
+	       // Send error message
+	       send(connfd, errorBuffer, 0,0);
 	     }
 	   }
 	 }
@@ -327,16 +330,17 @@ int handleCommand(char *command, int sock, char *file){
 	printf("Connected\n");
 	connected = 1;
       }
-      //}
-      
       if(send(parentSocket, nameBuffer, nameSize, 0) >= 0){
 	printf("message sent\n");
 	printf("Request buffer size: %d\n", nameSize);
 	printf("Request Buffer Sent: %s\n", requestBuffer);
       }
-      
-      if(recv(parentSocket, buffer, 4600, 0) < 0){
+      int bytesReceived = recv(parentSocket, buffer, 4600, 0);
+      if(bytesReceived < 0){
 	perror("recv error\n");
+      }
+      else if(bytesReceived == 0){
+	printf("File not in client's directory");
       }
       else{
 	int size = strlen(buffer);
@@ -448,12 +452,7 @@ int registerFiles(int sock, List * fileList){
 
   // send buffer to server
   if(send(sock, buffer, sizeof(buffer), 0) > 0) {
-    // wait for response
-    bzero(buffer, sizeof(buffer));
-    if(recv(sock, buffer, sizeof(buffer), 0) <= 0) {
-      printf("Recive after file list Send Failed: %s\n", strerror(errno));
-      return 1;
-    }
+    return 0;
   }
   else {
     printf("File List Send Failed: %s\n", strerror(errno));
