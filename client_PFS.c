@@ -129,39 +129,6 @@ int main (int argc, char * argv[])
       }  
     }
     else{
-      /*
-      // init server addr with addr and port provided in argv
-      int socketfd;
-      struct sockaddr_in serv_addr;
-      memset(&serv_addr, '0', sizeof(serv_addr));
-      serv_addr.sin_family = AF_INET;
-      serv_addr.sin_addr.s_addr = inet_addr(argv[2]);
-      serv_addr.sin_port = htons(atoi(argv[3]));
-      // create socketfd and set SO_REUSEADDR
-      socketfd = socket(AF_INET, SOCK_STREAM, 0);
-      int optVal = 1;
-      setsockopt(socketfd, SOL_SOCKET, SO_REUSEADDR, &optVal, sizeof(optVal));
-      // attempt to connect to server
-      if(connect(socketfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr))) {
-      // connection failed
-      printf("Connect Failed: %s\n", strerror(errno));
-      return 1;
-      }
-      else {
-      // successful connection
-      // register client
-      if(registerClientName(argv[1], myIP, myPort, socketfd)){
-      printf("Client Name Already Registered: %s\n", argv[1]);
-      printf("Exiting\n");
-      exit(1);
-      }
-      // send client files
-      if(registerFiles(socketfd, fileList)){
-      printf("Failed to register files\n");
-      exit(1);
-      }
-      }
-      */
        // init server addr with addr and port provided in argv
       int socketfd;
       struct sockaddr_in serv_addr;
