@@ -40,7 +40,7 @@ int bufferToList(char *buffer, struct LinkedList *fileList);
 //int getDirectoryFiles(struct LinkedList *fileList);
 int getDirectoryFiles(List **fileList, char *name, char *ip, char *port);
 
-int fileToBuffer(int fileSize, char *fileName, char **buffer);
+int fileToBuffer(char *fileName, char **buffer);
 
 int handleCommand(char *command, char *file, List *fileList);
 
@@ -90,7 +90,7 @@ int main (int argc, char * argv[])
   memset(&serv_addr, '0', sizeof(serv_addr));
   serv_addr.sin_family = AF_INET;
   serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-  serv_addr.sin_port = htons(9092);
+  serv_addr.sin_port = 0;//htons(9092);
   
   getSocket = 0;
   getSocket = socket(AF_INET, SOCK_STREAM, 0);       
@@ -116,19 +116,38 @@ int main (int argc, char * argv[])
   if(pid >= 0){
     if(pid == 0){
       //child
-      char buffer[1024];
+      char buffer[64];
       while(1){
-	 int connfd = accept(getSocket, (struct sockaddr*)NULL, NULL);
-	 int received = 0;
+	int connfd = accept(getSocket, (struct sockaddr*)NULL, NULL);
+	int received = 0;
 	 while(!received){
 	   printf("child receive\n");
-	   if(recv(connfd, buffer, sizeof buffer, 0) < 0){
+	   if(recv(connfd, buffer, 64, 0) < 0){
 	     perror("recv error\n");
 	   }
 	   else{
 	     // handle file request
-	     printf("Received request: %s", buffer); 
+	     char * fileRequestBuffer;
+	     printf("Received request: %s\n", buffer); 
 	     received = 1;
+	     int size = strlen(buffer);
+	     printf("request size: %d\n", size);
+	     fileRequestBuffer = malloc(size+1);
+	     strncpy(fileRequestBuffer, buffer, size);
+	     fileRequestBuffer[size+1] = '\0';
+	     printf("Request: %s\n", fileRequestBuffer);
+	     FileInfo info;
+	     if(search(fileRequestBuffer, fileList, &info)){
+	       printf("File found\n");
+	       char *fileBuffer;
+	       fileToBuffer(fileRequestBuffer, &fileBuffer);
+	       int fileSize = strlen(fileBuffer);
+	       printf("Sending %d bytes in message: %s\n", fileSize, fileBuffer);
+	       send(connfd, fileBuffer, fileSize, 0);
+	     }
+	     else{
+	       printf("File not found\n");
+	     }
 	   }
 	 }
 	 printf("Received loop done\n");
@@ -201,22 +220,18 @@ int main (int argc, char * argv[])
 
 //Read char buffer to File descriptor
 int bufferToFile(char *buffer, FILE *file, char *fileName, int *fileSize){
-  char sizeBuffer[MAXINTSIZE];
   char *fileBuffer;
-  printf("Buffer: %s\n", buffer);
-  strncpy(sizeBuffer, buffer, MAXINTSIZE);
-  
-  int size = strtol(sizeBuffer, NULL, 16);
-  printf("Size of file: %d\n", size);
-  fileBuffer = malloc(size);
-  strncpy(fileBuffer, (buffer+MAXINTSIZE), size);
-  
+  fileBuffer = malloc(*fileSize+1);
+  printf("malloc done\n");
+  printf("opening file: %s\n", fileName);
   file = fopen(fileName, "wb");
-  fwrite(fileBuffer, size, 1, file);
+  if(file == NULL){
+    printf("error opening file\n");
+  }
+  printf("file opened\n");
+  fwrite(buffer, *fileSize, 1, file);
   
   fclose(file);
-  
-
   return 0;
 }
 
@@ -257,20 +272,24 @@ int getDirectoryFiles(List **fileList, char *name, char *ip, char *port){
 
 // Read file into buffer
 // Structure |fileSize|File|
-int fileToBuffer(int fileSize, char *fileName, char **buffer){
+int fileToBuffer(char *fileName, char **buffer){
   char sizeBuffer[MAXINTSIZE+1];
-  char *fileBuffer = malloc(fileSize+1);
   FILE *fp;
-  
-  *buffer = malloc((MAXINTSIZE+1)+(fileSize+1));
-  
-  sprintf(sizeBuffer, "%08x", fileSize);
-  strcat(*buffer, sizeBuffer);
-
+  int size;
   fp = fopen(fileName, "r");
   if(!fp)
     printf("Error opening file\n");
-  size_t newLen = fread(fileBuffer, sizeof(char), (fileSize+1), fp);
+
+  fseek(fp, 0L, SEEK_END);
+  size = ftell(fp);
+  fseek(fp, 0L, SEEK_SET);
+  char *fileBuffer = malloc(size+1);
+  
+  *buffer = malloc(size+1);
+  
+  //sprintf(sizeBuffer, "%08x", size);
+  //strcat(*buffer, sizeBuffer);
+  size_t newLen = fread(fileBuffer, sizeof(char), (size+1), fp);
   if (newLen == 0) {
     fputs("Error reading file", stderr);
     return 1;
@@ -282,6 +301,7 @@ int fileToBuffer(int fileSize, char *fileName, char **buffer){
 
 // Handle command line input return 1 on exit or failure
 int handleCommand(char *command, char *file, List *fileList){
+  char buffer[4600];
   if(strstr(command, "exit") != NULL) {
     printf("recived exit comman\n");
     return 1;
@@ -299,48 +319,65 @@ int handleCommand(char *command, char *file, List *fileList){
     // create connection with client
     // send file request and retrieve file
     // close connection
+    char commandBuffer[4];
+    char nameBuffer[56];
+    char portBuffer[5];
+    char ipBuffer[10];
+    sscanf(command,"%s %s %s %s", commandBuffer, nameBuffer, portBuffer, ipBuffer);
     char *requestBuffer;
-    printf("recived get command\n");
-    int nameSize = strlen(command)-5;
+    //int nameSize = strlen(command)-5;
+    int nameSize = strlen(nameBuffer);
+    printf("name size: %d\n", nameSize);
     requestBuffer = malloc(nameSize);
-    strncpy(requestBuffer, command+4, nameSize);
-    printf("request: %s\n", requestBuffer);
+    //strncpy(requestBuffer, command+4, nameSize);
+    printf("request: %s\n", nameBuffer);
     FileInfo info;
-    if(search(requestBuffer, fileList, &info)){
-      printf("file found\n");
-      printf("Port: %s\n", info.port);
-      int parentSocket = socket(AF_INET, SOCK_STREAM, 0);
-      struct sockaddr_in client_addr;
-      memset(&client_addr, '0', sizeof(client_addr));
+    //if(search(nameBuffer, fileList, &info)){
+    //printf("file found\n");
+    int parentSocket = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in client_addr;
+    memset(&client_addr, '0', sizeof(client_addr));
 
-      client_addr.sin_family = AF_INET;
-      client_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-      int port = (int)strtol(info.port, (char **)NULL, 10);
-      client_addr.sin_port = htons(port); 
-      int optVal = 1;
-      setsockopt(parentSocket, SOL_SOCKET, SO_REUSEADDR, &optVal, sizeof(optVal));
-      int connected = 0;
-      while(!connected){
-	//blindly attempt to connect
-	if(connect(parentSocket, (struct sockaddr *)&client_addr, sizeof(client_addr))){
-	  printf("error connecting\n");
-	}
-	else{
-	  printf("Connected\n");
-	  connected = 1;
-	}
+    client_addr.sin_family = AF_INET;
+    client_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    int port = (int)strtol(portBuffer, (char **)NULL, 10);
+    printf("Port: %d\n", port);
+    client_addr.sin_port = htons(port); 
+    int optVal = 1;
+    setsockopt(parentSocket, SOL_SOCKET, SO_REUSEADDR, &optVal, sizeof(optVal));
+    int connected = 0;
+    while(!connected){
+      //blindly attempt to connect
+      if(connect(parentSocket, (struct sockaddr *)&client_addr, sizeof(client_addr))){
+	printf("error connecting\n");
       }
-      char buffer[1024];
-      int i;
-      for(i = 0; i < 1; i++){
-	if(send(parentSocket, buffer, sizeof buffer, 0) >= 0){
-	  printf("message sent\n");
-	};
+      else{
+	printf("Connected\n");
+	connected = 1;
       }
+      //}
+      
+      if(send(parentSocket, nameBuffer, nameSize, 0) >= 0){
+	printf("message sent\n");
+	printf("Request buffer size: %d\n", nameSize);
+	printf("Request Buffer Sent: %s\n", requestBuffer);
+      }
+      
+      if(recv(parentSocket, buffer, 4600, 0) < 0){
+	perror("recv error\n");
+      }
+      else{
+	int size = strlen(buffer);
+	printf("File Size: %d\n", size);
+	printf("File name: %s\n", nameBuffer);
+	FILE *fd = NULL;
+	bufferToFile(buffer, fd, nameBuffer, &size);
+      }
+      
     }
-    else{
-      printf("File not found\n");
-    }
+    //else{
+    //printf("File not found\n");
+    //}
     return 0;
   }
   printf("Error: Unrecognized Command\n");
